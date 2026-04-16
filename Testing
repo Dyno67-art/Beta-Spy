@@ -490,11 +490,12 @@ local connections = {}
 local useGetCallingScript = false
 local keyToString = false
 local recordReturnValues = false
-local showNumbers = true       -- No Number toggle
+local showNumbers = true       -- No Number toggle (log entry prefix)
 local showType = true          -- show E/F prefix (Event/Function)
 local pauseLogging = false     -- Pause: stop new remotes from showing
 local maxLogCount = 500        -- Max Logs cap
 local logCount = 0             -- running counter for numbering
+local noNumberKeys = false     -- No Number: omit [1]= [2]= in generated script tables
 
 function SimpleSpy:ArgsToString(method, args)
 	assert(typeof(method) == "string", "string expected, got " .. typeof(method))
@@ -1065,6 +1066,24 @@ function t2s(t, l, p, n, vtv, i, pt, path, tables, tI)
 	local s = "{"
 	local size = 0
 	l = l + indent
+
+	-- Check if table is a pure sequential array (keys 1,2,3,...) for No Number mode
+	local isArray = false
+	if noNumberKeys then
+		local maxIdx = 0
+		local count = 0
+		for k, _ in pairs(t) do
+			if type(k) == "number" and k == math.floor(k) and k >= 1 then
+				maxIdx = math.max(maxIdx, k)
+				count = count + 1
+			else
+				count = -999 -- has non-integer key, not a pure array
+				break
+			end
+		end
+		isArray = (count == maxIdx)
+	end
+
 	for k, v in pairs(t) do
 		size = size + 1
 		if size > (_G.SimpleSpyMaxTableSize or 1000) then
@@ -1079,7 +1098,12 @@ function t2s(t, l, p, n, vtv, i, pt, path, tables, tI)
 		if type(k) == "string" and k:match("^[%a_]+[%w_]*$") then currentPath = "." .. k
 		else currentPath = "[" .. k2s(k, l, p, n, vtv, k, t, path .. currentPath, tables, tI) .. "]" end
 		if size % 100 == 0 then scheduleWait() end
-		s = s .. "\n" .. string.rep(" ", l) .. "[" .. k2s(k, l, p, n, vtv, k, t, path .. currentPath, tables, tI) .. "] = " .. v2s(v, l, p, n, vtv, k, t, path .. currentPath, tables, tI) .. ","
+		-- If array mode, omit the [k] = part for integer keys
+		if isArray and type(k) == "number" then
+			s = s .. "\n" .. string.rep(" ", l) .. v2s(v, l, p, n, vtv, k, t, path .. currentPath, tables, tI) .. ","
+		else
+			s = s .. "\n" .. string.rep(" ", l) .. "[" .. k2s(k, l, p, n, vtv, k, t, path .. currentPath, tables, tI) .. "] = " .. v2s(v, l, p, n, vtv, k, t, path .. currentPath, tables, tI) .. ","
+		end
 	end
 	if #s > 1 then s = s:sub(1, #s - 1) end
 	if size > 0 then s = s .. "\n" .. string.rep(" ", l - indent) end
@@ -1767,13 +1791,25 @@ newButton("While Loop", function() return "Click to copy code While Loop" end, f
 	TextLabel.Text = "Copied successfully!"
 end)
 
---- No Number: toggles [1] index prefix on log entries
+--- No Number: omit [1]= [2]= integer keys in generated script, uses clean array style
 newButton("No Number", function()
-	return string.format("[%s] Toggle number prefix [1] on remote log entries", showNumbers and "ON" or "OFF")
+	return string.format(
+		"[%s] Toggle array-style output.\nOFF:  [1] = \"item\", [2] = \"Water\"\nON:   \"item\", \"Water\"",
+		noNumberKeys and "ON" or "OFF"
+	)
 end, function()
-	showNumbers = not showNumbers
-	refreshLogLabels()
-	TextLabel.Text = string.format("Number prefix: %s", showNumbers and "ON" or "OFF")
+	noNumberKeys = not noNumberKeys
+	-- Re-generate the currently selected remote with new setting
+	if selected and selected.Remote and selected.Remote.remote then
+		local remote = selected.Remote.remote
+		coroutine.wrap(function()
+			local ok, result = pcall(genScript, remote, {})
+			-- We can't get original args again, so just notify user
+		end)()
+		TextLabel.Text = string.format("No Number: %s — select a remote to see new format", noNumberKeys and "ON" or "OFF")
+	else
+		TextLabel.Text = string.format("No Number: %s", noNumberKeys and "ON" or "OFF")
+	end
 end)
 
 --- No Type: toggles [E]/[F] type prefix on log entries
