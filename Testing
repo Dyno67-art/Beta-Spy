@@ -490,12 +490,11 @@ local connections = {}
 local useGetCallingScript = false
 local keyToString = false
 local recordReturnValues = false
-local showNumbers = true       -- No Number toggle (log entry prefix)
-local showType = true          -- show E/F prefix (Event/Function)
-local pauseLogging = false     -- Pause: stop new remotes from showing
-local maxLogCount = 500        -- Max Logs cap
-local logCount = 0             -- running counter for numbering
-local noNumberKeys = false     -- No Number: omit [1]= [2]= in generated script tables
+local showNumbers = true
+local showType = true
+local pauseLogging = false
+local maxLogCount = 500
+local logCount = 0
 
 function SimpleSpy:ArgsToString(method, args)
 	assert(typeof(method) == "string", "string expected, got " .. typeof(method))
@@ -1066,24 +1065,6 @@ function t2s(t, l, p, n, vtv, i, pt, path, tables, tI)
 	local s = "{"
 	local size = 0
 	l = l + indent
-
-	-- Check if table is a pure sequential array (keys 1,2,3,...) for No Number mode
-	local isArray = false
-	if noNumberKeys then
-		local maxIdx = 0
-		local count = 0
-		for k, _ in pairs(t) do
-			if type(k) == "number" and k == math.floor(k) and k >= 1 then
-				maxIdx = math.max(maxIdx, k)
-				count = count + 1
-			else
-				count = -999 -- has non-integer key, not a pure array
-				break
-			end
-		end
-		isArray = (count == maxIdx)
-	end
-
 	for k, v in pairs(t) do
 		size = size + 1
 		if size > (_G.SimpleSpyMaxTableSize or 1000) then
@@ -1098,12 +1079,7 @@ function t2s(t, l, p, n, vtv, i, pt, path, tables, tI)
 		if type(k) == "string" and k:match("^[%a_]+[%w_]*$") then currentPath = "." .. k
 		else currentPath = "[" .. k2s(k, l, p, n, vtv, k, t, path .. currentPath, tables, tI) .. "]" end
 		if size % 100 == 0 then scheduleWait() end
-		-- If array mode, omit the [k] = part for integer keys
-		if isArray and type(k) == "number" then
-			s = s .. "\n" .. string.rep(" ", l) .. v2s(v, l, p, n, vtv, k, t, path .. currentPath, tables, tI) .. ","
-		else
-			s = s .. "\n" .. string.rep(" ", l) .. "[" .. k2s(k, l, p, n, vtv, k, t, path .. currentPath, tables, tI) .. "] = " .. v2s(v, l, p, n, vtv, k, t, path .. currentPath, tables, tI) .. ","
-		end
+		s = s .. "\n" .. string.rep(" ", l) .. "[" .. k2s(k, l, p, n, vtv, k, t, path .. currentPath, tables, tI) .. "] = " .. v2s(v, l, p, n, vtv, k, t, path .. currentPath, tables, tI) .. ","
 	end
 	if #s > 1 then s = s:sub(1, #s - 1) end
 	if size > 0 then s = s .. "\n" .. string.rep(" ", l - indent) end
@@ -1539,6 +1515,19 @@ BPClearBtn.MouseLeave:Connect(function()
 	TweenService:Create(BPClearBtn, TweenInfo.new(0.15), { BackgroundColor3 = Color3.fromRGB(50, 160, 100) }):Play()
 end)
 
+--- Handles mouse moved event (updates mouse position for tooltip)
+function mouseMoved()
+	-- Mouse position is accessed directly via Mouse.X / Mouse.Y, no action needed here
+end
+
+--- Handles background user input (used for tooltip hide on click outside)
+function backgroundUserInput(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if mouseInGui then return end
+		makeToolTip(false)
+	end
+end
+
 -- main
 if not _G.SimpleSpyExecuted then
 	local succeeded, err = pcall(function()
@@ -1580,6 +1569,30 @@ if not _G.SimpleSpyExecuted then
 		if syn and syn.protect_gui then pcall(syn.protect_gui, SimpleSpy2) end
 		bringBackOnResize()
 		SimpleSpy2.Parent = CoreGui
+
+		-- Detect executor name and show Roblox notification
+		coroutine.wrap(function()
+			wait(1)
+			local executorName = "Unknown"
+			if identifyexecutor then
+				pcall(function() executorName = identifyexecutor() end)
+			elseif KRNL_LOADED then
+				executorName = "Krnl"
+			elseif syn then
+				executorName = "Synapse X"
+			elseif rconsoleprint then
+				executorName = "ScriptWare"
+			elseif getexecutorname then
+				pcall(function() executorName = getexecutorname() end)
+			end
+			pcall(function()
+				game:GetService("StarterGui"):SetCore("SendNotification", {
+					Title = "SimpleSpy Modded By Fenzoxy",
+					Text = "Loaded! Executor: " .. tostring(executorName),
+					Duration = 5,
+				})
+			end)
+		end)()
 
 		-- Parent the Open Button GUI
 		if syn and syn.protect_gui then pcall(syn.protect_gui, OpenButtonGui) end
@@ -1791,25 +1804,17 @@ newButton("While Loop", function() return "Click to copy code While Loop" end, f
 	TextLabel.Text = "Copied successfully!"
 end)
 
---- No Number: omit [1]= [2]= integer keys in generated script, uses clean array style
+--- No Number: strips [1] = style integer keys from the currently shown script in codebox
 newButton("No Number", function()
-	return string.format(
-		"[%s] Toggle array-style output.\nOFF:  [1] = \"item\", [2] = \"Water\"\nON:   \"item\", \"Water\"",
-		noNumberKeys and "ON" or "OFF"
-	)
+	return "Click to strip [1] = , [2] = ... integer keys from the current script in the codebox (array-style output)"
 end, function()
-	noNumberKeys = not noNumberKeys
-	-- Re-generate the currently selected remote with new setting
-	if selected and selected.Remote and selected.Remote.remote then
-		local remote = selected.Remote.remote
-		coroutine.wrap(function()
-			local ok, result = pcall(genScript, remote, {})
-			-- We can't get original args again, so just notify user
-		end)()
-		TextLabel.Text = string.format("No Number: %s — select a remote to see new format", noNumberKeys and "ON" or "OFF")
-	else
-		TextLabel.Text = string.format("No Number: %s", noNumberKeys and "ON" or "OFF")
-	end
+	if not selected then TextLabel.Text = "Select a remote first!"; return end
+	local raw = codebox:getString()
+	if raw == "" then TextLabel.Text = "Codebox is empty!"; return end
+	-- Replace patterns like [1] = , [2] = , [10] = etc with nothing (just the value)
+	local cleaned = raw:gsub("%[%d+%]%s*=%s*", "")
+	codebox:setRaw(cleaned)
+	TextLabel.Text = "Integer keys removed!"
 end)
 
 --- No Type: toggles [E]/[F] type prefix on log entries
