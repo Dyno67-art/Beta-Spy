@@ -535,8 +535,8 @@ DeltaButton.BorderSizePixel = 0
 DeltaButton.Position = UDim2.new(0, 261, 0, 2)
 DeltaButton.Size = UDim2.new(0, 55, 0, 14)
 DeltaButton.Font = Enum.Font.GothamBold
-DeltaButton.Text = "For Delta"
-DeltaButton.TextColor3 = Color3.fromRGB(20, 20, 20)
+DeltaButton.Text = "For Delta Here"
+DeltaButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 DeltaButton.TextSize = 9
 DeltaButton.AutoButtonColor = false
 local DeltaCorner = Instance.new("UICorner")
@@ -2069,6 +2069,27 @@ end, function()
 	end
 	setclipboard(out)
 	TextLabel.Text = "All " .. #logs .. " logs copied!"
+end)
+
+newButton("Export Logs", function()
+	return "Export all logs to a .txt file saved on your device (uses writefile)"
+end, function()
+	if #logs == 0 then TextLabel.Text = "No logs to export!"; return end
+	if not writefile then TextLabel.Text = "writefile not supported!"; return end
+	local out = "-- SimpleSpy Modded By Fenzoxy\n-- Exported: " .. os.date("%Y-%m-%d %H:%M:%S") .. "\n-- Total remotes: " .. #logs .. "\n\n"
+	for i, v in ipairs(logs) do
+		out = out .. string.rep("-", 50) .. "\n"
+		out = out .. "-- [" .. i .. "] Remote: " .. tostring(v.Name) .. "\n"
+		if v.Blocked then out = out .. "-- [BLOCKED]\n" end
+		out = out .. tostring(v.GenScript) .. "\n\n"
+	end
+	local filename = "SimpleSpy_Export_" .. os.time() .. ".txt"
+	local ok, err = pcall(writefile, filename, out)
+	if ok then
+		TextLabel.Text = "Exported to: " .. filename
+	else
+		TextLabel.Text = "Export failed: " .. tostring(err):sub(1, 40)
+	end
 end)
 
 --- Filter: show only remotes whose name contains a keyword (stored in a TextBox-style prompt via codebox)
